@@ -34,7 +34,9 @@ from utils.utils import print_startup_message, safe_split_message, hz_line
 from config_loader import ConfigLoader  # Import ConfigLoader
 
 # Configure basic logging
-logging.basicConfig(format='[%(asctime)s] %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(format='[%(asctime)s] %(name)s - %(levelname)s - %(message)s', level=logging.WARN)
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Read configuration for restart behavior
@@ -43,6 +45,7 @@ logger = logging.getLogger(__name__)
 
 # Use ConfigLoader to get configuration
 config = ConfigLoader.get_config()
+owner_ids = ConfigLoader.get_owner_ids()
 notification_settings = ConfigLoader.get_notification_settings()
 restart_on_failure = config.getboolean('GeneralSettings', 'RestartOnConnectionFailure', fallback=True)
 
@@ -158,7 +161,17 @@ class TranscriberBot:
         self.output_dir = "transcriptions"
         os.makedirs(self.output_dir, exist_ok=True)
 
+    def check_chat_id(self, update: Update) -> bool:
+        chat_id = update.effective_chat.id
+        if not chat_id in owner_ids:
+            logger.warn("Chat from unauthorized user.")
+            return False
+        else:
+            return True
+
     async def start_command(self, update: Update, context: CallbackContext) -> None:
+        if not self.check_chat_id(update):
+            return
         max_file_size_mb = self.max_file_size_mb  # Use the configured value
         welcome_message = (
             "👋 <b>Welcome to the Whisper Transcriber Bot!</b>\n\n"
@@ -177,6 +190,8 @@ class TranscriberBot:
         await update.message.reply_text(welcome_message, parse_mode='HTML')
 
     async def handle_message(self, update: Update, context: CallbackContext) -> None:
+        if not self.check_chat_id(update):
+            return
         user_id = update.effective_user.id  # Update the user_id
         message_text = update.message.text  # Get the text of the message received
 
@@ -443,6 +458,8 @@ class TranscriberBot:
 
     # set the model's language
     async def set_language_command(self, update: Update, context: CallbackContext) -> None:
+        if not self.check_chat_id(update):
+            return
         user_id = update.effective_user.id
         supported_languages = self.config.get('WhisperSettings', 'supportedlanguages', fallback='auto').split(', ')
 
@@ -467,6 +484,8 @@ class TranscriberBot:
 
     # view help
     async def help_command(self, update: Update, context: CallbackContext) -> None:
+        if not self.check_chat_id(update):
+            return
         models_list = ', '.join(self.valid_models)  # Dynamically generate the list of valid models
         allowed_formats_list = ', '.join(self.allowed_formats)  # Get the list of allowed formats
 
@@ -550,6 +569,8 @@ class TranscriberBot:
         await update.message.reply_text(help_text, parse_mode='HTML')
 
     async def model_command(self, update: Update, context: CallbackContext) -> None:
+        if not self.check_chat_id(update):
+            return
         user_id = update.effective_user.id
         current_time = time.time()
         models_list = ', '.join(self.valid_models)  # Dynamically generate the list of valid models
@@ -758,6 +779,8 @@ class TranscriberBot:
             await update.message.reply_text("An error occurred while processing your video file.")
 
     async def info_command(self, update: Update, context: CallbackContext) -> None:
+        if not self.check_chat_id(update):
+            return
         user_id = update.effective_user.id
         current_model = get_whisper_model(user_id)
         current_language = get_whisper_language(user_id)
